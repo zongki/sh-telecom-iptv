@@ -11,7 +11,7 @@
          height: 100vh; height: 100dvh; }  /* dvh: 移动端地址栏收展时高度跟随 */
   #player { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   video { flex: 1; width: 100%; background: #000; min-height: 0; }
-  /* 点播时伪直播流原生进度条无 seekable, 隐藏原生进度条和时间, 保留音量/全屏/更多选项 */
+  /* 实时流(直播/时移/点播)原生进度条无 seekable, 直播按键呈灰色不可用, 隐藏进度条和时间, 保留音量/全屏/更多选项 */
   video.notl::-webkit-media-controls-timeline,
   video.notl::-webkit-media-controls-current-time-display,
   video.notl::-webkit-media-controls-time-remaining-display { display: none; }
@@ -152,6 +152,7 @@ const daysEl = document.getElementById('days');
 const catsEl = document.getElementById('cats');
 const searchEl = document.getElementById('search');
 const btnList = document.getElementById('btnList');
+const btnLive = document.getElementById('btnLive');
 const mqMobile = window.matchMedia('(max-width: 950px)');
 let channels = [];
 let current = null;
@@ -219,6 +220,11 @@ function renderView() {
   else render(q.value);
 }
 
+function updateBar() {  // 直播态禁用"直播"键和时移滑块; 时移/点播态恢复, "直播"键用于回到直播
+  btnLive.disabled = mode === 'live';
+  backSlider.disabled = !(mode === 'ts' && current && current.ts);
+}
+
 // ---------------- 播放 ----------------
 function userPlay() {  // 用户手势内取消静音; 页面加载自动选台时保持 muted 以满足自动播放策略
   if (navigator.userActivation && navigator.userActivation.isActive) v.muted = false;
@@ -278,6 +284,8 @@ function select(c, backSeconds) {
   current = c;
   mode = backSeconds ? 'ts' : 'live';
   catchupStart = 0;
+  v.classList.add('notl');   // 直播/时移是实时流, 原生进度条和 Live 按键无意义, 隐藏
+  updateBar();
   chname.textContent = c.no + ' ' + c.name;
   backLabel.textContent = fmtBack(backSeconds || 0);
   renderView();
@@ -336,6 +344,7 @@ function catchup(c, prog) {
   vodWrap.style.display = 'flex';
   v.controls = true;
   v.classList.add('notl');   // 原生进度条无 seekable, 用自绘进度条, 其余原生控件保留
+  updateBar();
   // 按节目点播: epg7 getTvodPlayUrl 的 HLS 中继, 支持 7 天内已播节目
   createPlayer(vodUrl(0), true);
   vodTimer = setInterval(vodTick, 500);
@@ -547,7 +556,7 @@ tabEpg.onclick = () => showEpg(current);
 tabSch.onclick = showSearch;
 
 document.getElementById('btnLive').onclick = () => {
-  if (current) { backSlider.value = 0; backLabel.textContent = '-0s'; select(current, 0); }
+  if (current && mode !== 'live') { backSlider.value = 0; backLabel.textContent = '-0s'; select(current, 0); }
 };
 backSlider.oninput = () => { backLabel.textContent = fmtBack(+backSlider.value); };
 backSlider.onchange = () => {
@@ -691,9 +700,10 @@ fetch('/api/channels').then(r => {
 
 v.onplaying = () => {
   v.oncanplay = null;
-  backSlider.disabled = !(current && current.ts && mode !== 'catchup');
+  updateBar();
   if (mode === 'catchup') vodSlider.disabled = !vodBill;
 };
+updateBar();   // 初始直播态: "直播"键和时移滑块置灰
 </script>
 </body>
 </html>
