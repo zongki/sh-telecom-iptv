@@ -1,4 +1,4 @@
-# iptv-client — 上海电信 IPTV 自建 Web 客户端
+# sh-telecom-iptv — 上海电信 IPTV 软终端
 
 一个跑在 NAS / 任意 Docker 容器里的上海电信 IPTV 客户端：**213 个频道网页直播、时移回看、7 天内按节目点播、全网节目搜索**，同时输出标准 M3U 供 TiviMate / DIYP 等播放器使用。协议栈（认证、EPG、RTSP 时移、HLS 点播）全部为 Python 纯标准库逆向实现，无重依赖。
 
@@ -134,7 +134,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://<路由器IP>:4022/status   # 20
 ```bash
 # 构建镜像（基于 homeassistant 镜像, 自带 python3.9 + ffmpeg）
 cd app
-docker build -t iptv-client:latest .
+docker build -t sh-telecom-iptv:latest .
 
 # 运行(配置既可以用 -e 环境变量, 也可以稍后编辑 data/config.json, 见下文)
 mkdir -p /volume1/docker/iptv/data
@@ -146,7 +146,7 @@ docker run -d --name iptv --restart unless-stopped \
   -e IPTV_UDPXY=http://192.168.1.1:4022 \
   -e IPTV_PORT=8300 \
   -v /volume1/docker/iptv/data:/data \
-  iptv-client:latest
+  sh-telecom-iptv:latest
 ```
 
 打开 `http://<NAS地址>:8300/` 即可。首次启动认证 + 建立搜索索引约需 1–2 分钟。
