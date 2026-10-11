@@ -1,0 +1,35 @@
+# ===== 私密数据（严禁入库）=====
+HANDOFF.md
+.nas_key
+.nas_key.pub
+.known_hosts
+.zcode/
+output/
+exported/
+pcap/
+ref/
+
+# 抓包/抓流产物与调试临时文件
+*.ts
+*.pcap
+*.pcapng
+1.txt
+2.txt
+dbg*.png
+
+# scripts/ 内的调试脚本含内网 IP, 如需开源请先清理
+scripts/
+
+# 运行时数据（config.json 含机顶盒账号）
+app/data/
+data/
+config.json
+
+# ===== 常规 =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.DS_Store
+Thumbs.db
