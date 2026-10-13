@@ -15,7 +15,9 @@
 /ts/{pid}.ts?back=N   时移 TS 流(N 秒前)
 /ts/{pid}.ts?start=T  按时间点播(T=unix 秒, 亦接受 utc=T, 受时移缓冲限制)
 /vod/{pid}.ts?bill=&start=&end=  按节目点播(epg7 getTvodPlayUrl 的 HLS 中继,
-                     支持 7 天内任意已播节目, 机顶盒同款通道)
+                     支持 7 天内任意已播节目, 机顶盒同款通道; sid=会话 ID
+                     绑定倍速, /api/vod_speed 可中途变速)
+/api/vod_speed    设置点播倍速(sid 会话, 流发段节奏随之缩放)
 """
 import json
 import os
@@ -405,12 +407,48 @@ def ts_stream(pid: str, back: int = 0, start: int = 0, utc: int = 0):
                 raise HTTPException(502, "时移失败: %s" % e)
 
 
-# ---------------- M3U ----------------
+# ---------------- 按节目点播 ----------------
+# 点播会话: sid -> {"speed": 倍速, "ts": 最近活动时刻}。
+# /vod 流的发送节奏随 speed 缩放(与前端 playbackRate 匹配), 变速不必重连。
+VOD_SESSIONS = {}
+VOD_SID_MAX = 64
+
+
+def _vod_sid_ok(sid):
+    return bool(sid) and len(sid) <= VOD_SID_MAX and sid.isalnum()
+
+
+def vod_session(sid):
+    now = time.time()
+    ent = VOD_SESSIONS.get(sid)
+    if not ent:
+        ent = {"speed": 1.0, "ts": now}
+        VOD_SESSIONS[sid] = ent
+        if len(VOD_SESSIONS) > 500:   # 顺带清理陈旧会话
+            for k in [k for k, v in VOD_SESSIONS.items()
+                      if now - v["ts"] > 6 * 3600]:
+                del VOD_SESSIONS[k]
+    ent["ts"] = now
+    return ent
+
+
+@app.post("/api/vod_speed")
+def api_vod_speed(sid: str = "", speed: float = 1.0):
+    """设置点播倍速: /vod 流按此节奏发段, 前端同时调 playbackRate。"""
+    if not _vod_sid_ok(sid):
+        raise HTTPException(400, "非法会话 ID")
+    ent = vod_session(sid)
+    ent["speed"] = round(min(max(speed, 0.25), 4.0), 2)
+    return {"ok": True, "speed": ent["speed"]}
+
+
 @app.get("/vod/{pid}.ts")
-def vod_stream(pid: str, bill: str = "", start: int = 0, end: int = 0):
+def vod_stream(pid: str, bill: str = "", start: int = 0, end: int = 0,
+               sid: str = ""):
     """按节目点播: epg7 getTvodPlayUrl -> HLS 播放列表 -> 串联 TS 中继。
 
-    bill 为节目单条目 ID(playbillID), start/end 为节目起止 unix 秒。
+    bill 为节目单条目 ID(playbillID), start/end 为节目起止 unix 秒,
+    sid 为倍速会话(见 /api/vod_speed)。
     支持 7 天内任意已播节目, 不受 RTSP 时移缓冲(1-4 小时)限制。
     """
     ch = find_channel(pid)
@@ -420,11 +458,14 @@ def vod_stream(pid: str, bill: str = "", start: int = 0, end: int = 0):
         raise HTTPException(400, "该频道无 EPG 信息, 不支持节目点播")
     if not bill or not start:
         raise HTTPException(400, "缺少 bill 或 start 参数")
+    sess = vod_session(sid) if _vod_sid_ok(sid) else None
 
     for attempt in (0, 1):
         try:
             play_url = EPG.get_tvod_play_url(ch["chid"], bill, start, end)
-            gen, nseg = vod.iter_ts(play_url, log=lambda m: print(m, flush=True))
+            gen, nseg = vod.iter_ts(
+                play_url, log=lambda m: print(m, flush=True),
+                speed_fn=(lambda: sess["speed"]) if sess else None)
             print("vod: %s bill=%s %d 段" % (pid, bill[-8:], nseg), flush=True)
             return StreamingResponse(gen(), media_type="video/mp2t",
                                      headers={"Cache-Control": "no-store"})

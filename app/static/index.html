@@ -108,6 +108,14 @@
     <span id="vodWrap">
       <input type="range" id="vodSlider" min="0" max="0" step="5" value="0" disabled>
       <span id="vodTime">0:00 / 0:00</span>
+      <select id="vodSpeed" title="倍速播放">
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+      </select>
     </span>
     <button id="btnPause">暂停</button>
     <button id="btnFS">全屏</button>
@@ -148,6 +156,7 @@ const backLabel = document.getElementById('backLabel');
 const vodWrap = document.getElementById('vodWrap');
 const vodSlider = document.getElementById('vodSlider');
 const vodTime = document.getElementById('vodTime');
+const vodSpeedSel = document.getElementById('vodSpeed');
 const nowEl = document.getElementById('now');
 const tabCh = document.getElementById('tabCh');
 const tabEpg = document.getElementById('tabEpg');
@@ -177,6 +186,8 @@ let vodBase = 0;          // 当前流起点相对节目开头的秒数(每次�
 let vodDur = 0;           // 节目总时长(秒)
 let vodTimer = null;      // 进度条刷新定时器
 let vodDragging = false;  // 正在拖动进度条
+let vodSpeed = 1;         // 点播倍速: 前端 playbackRate + 服务端发段节奏, 跨节目保持
+let vodSid = '';          // 点播会话 ID, 服务端据此实时读取倍速(变速不重连)
 
 function fmtT(s) {
   s = Math.max(0, Math.round(s));
@@ -191,6 +202,8 @@ function stopVod() {
   vodDragging = false;
   v.classList.remove('notl');
   v.controls = true;
+  v.playbackRate = 1;        // 离开点播(回直播/时移)恢复原速
+  v.defaultPlaybackRate = 1;
 }
 
 function fmtBack(s) {
@@ -302,7 +315,8 @@ function select(c, backSeconds) {
 function vodUrl(pos) {
   return '/vod/' + current.pid + '.ts?bill=' + vodBill +
          '&start=' + Math.floor(catchupStart / 1000 + pos) +
-         '&end=' + Math.floor(vodEnd / 1000);
+         '&end=' + Math.floor(vodEnd / 1000) +
+         '&sid=' + vodSid;
 }
 
 function seekVod(pos) {
@@ -333,6 +347,10 @@ function catchup(c, prog) {
   destroyPlayer();
   current = c;
   mode = 'catchup';
+  vodSid = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  vodSpeedSel.value = String(vodSpeed);
+  if (vodSpeed !== 1)   // 倍速跨节目保持: 让新会话的服务端节奏立即对上
+    fetch('/api/vod_speed?sid=' + vodSid + '&speed=' + vodSpeed, {method: 'POST'}).catch(() => {});
   catchupStart = +prog.startTime;
   vodBill = prog.ID || '';
   vodEnd = +prog.endTime;
@@ -574,6 +592,13 @@ vodSlider.onchange = () => {
   vodDragging = false;
   if (mode === 'catchup') seekVod(+vodSlider.value);
 };
+vodSpeedSel.onchange = () => {
+  vodSpeed = +vodSpeedSel.value || 1;
+  // 变速不重连: playbackRate 立即生效, 服务端经会话把发段节奏跟上
+  v.defaultPlaybackRate = vodSpeed;
+  v.playbackRate = vodSpeed;
+  if (vodSid) fetch('/api/vod_speed?sid=' + vodSid + '&speed=' + vodSpeed, {method: 'POST'}).catch(() => {});
+};
 document.getElementById('btnFS').onclick = () => {
   const el = document.getElementById('player');
   if (document.fullscreenElement) document.exitFullscreen();
@@ -705,7 +730,12 @@ fetch('/api/channels').then(r => {
 v.onplaying = () => {
   v.oncanplay = null;
   updateBar();
-  if (mode === 'catchup') vodSlider.disabled = !vodBill;
+  if (mode === 'catchup') {
+    vodSlider.disabled = !vodBill;
+    // 重开流(进点播/拖动定位)会触发资源重选, 倍速被重置, 播放时补回
+    v.defaultPlaybackRate = vodSpeed;
+    v.playbackRate = vodSpeed;
+  }
 };
 updateBar();   // 初始直播态: "直播"键和时移滑块置灰
 </script>
