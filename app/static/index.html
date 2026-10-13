@@ -13,7 +13,8 @@
   body { margin: 0; font-family: system-ui, "Microsoft YaHei", sans-serif;
          background: #111; color: #eee; display: flex;
          height: 100vh; height: 100dvh; }  /* dvh: 移动端地址栏收展时高度跟随 */
-  #player { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #player { flex: 1; display: flex; flex-direction: column; min-width: 0;
+            position: relative; }  /* 供快捷键 OSD 提示定位 */
   video { flex: 1; width: 100%; background: #000; min-height: 0; }
   /* 实时流(直播/时移/点播)原生进度条无 seekable, 直播按键呈灰色不可用, 隐藏进度条和时间, 保留音量/全屏/更多选项 */
   video.notl::-webkit-media-controls-timeline,
@@ -72,6 +73,22 @@
   #envList .hint { color: #aaa; font-size: 12px; margin: 2px 0 0 1.3em; }
   #envBtns { display: flex; gap: 10px; justify-content: flex-end; }
 
+  /* ---- 快捷键 OSD 与帮助面板 ---- */
+  #osd { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.65);
+         color: #eee; padding: 4px 12px; border-radius: 4px; font-size: 15px;
+         display: none; pointer-events: none; z-index: 9;
+         font-variant-numeric: tabular-nums; }
+  #keyMask { position: fixed; inset: 0; background: rgba(0,0,0,.78); z-index: 99;
+             display: flex; align-items: center; justify-content: center; }
+  #keyBox { background: #1b1b1b; border: 1px solid #444; border-radius: 8px;
+            padding: 16px 20px; max-width: 92vw; width: 430px; max-height: 85dvh;
+            overflow-y: auto; }
+  #keyBox h3 { margin: 0 0 10px; font-size: 16px; }
+  #keyList { list-style: none; margin: 0; padding: 0; }
+  #keyList li { padding: 4px 0; font-size: 14px; line-height: 1.5; }
+  #keyList b { display: inline-block; min-width: 9.5em; color: #9cd;
+               font-weight: 600; }
+
   /* ---- 手机/窄屏适配 ----
      竖屏: 上下堆叠, 视频在上, 侧栏(列表)占下方 48dvh, 可折叠成全屏播放;
      横屏: 保持左右布局但侧栏收窄 */
@@ -99,6 +116,7 @@
 <body>
 <div id="player">
   <video id="v" controls muted playsinline webkit-playsinline></video>
+  <div id="osd"></div>
   <div id="bar">
     <button id="btnList">列表</button>
     <b id="chname">未选择频道</b>
@@ -142,6 +160,23 @@
       <button id="envRetry">重新检测</button>
       <button id="envGo">继续使用</button>
     </div>
+  </div>
+</div>
+<div id="keyMask" style="display:none">
+  <div id="keyBox">
+    <h3>键盘快捷键</h3>
+    <ul id="keyList">
+      <li><b>↑ / ↓</b>上一个 / 下一个频道</li>
+      <li><b>PageUp / PageDown</b>同上（遥控器换台习惯）</li>
+      <li><b>0–9</b>输入频道号跳台（多位号自动等待）</li>
+      <li><b>← / →</b>直播进时移 / 追回 30s；点播 ±10s</li>
+      <li><b>空格</b>播放 / 暂停</li>
+      <li><b>L</b>回到直播</li>
+      <li><b>M</b>静音开关</li>
+      <li><b>+ / −</b>音量调节</li>
+      <li><b>F</b>全屏开关</li>
+      <li><b>H 或 ?</b>显示本帮助</li>
+    </ul>
   </div>
 </div>
 <script src="/static/mpegts.js"></script>
@@ -300,6 +335,8 @@ function select(c, backSeconds) {
   destroyPlayer();
   current = c;
   mode = backSeconds ? 'ts' : 'live';
+  curBack = backSeconds || 0;
+  cancelNum();
   catchupStart = 0;
   v.classList.add('notl');   // 直播/时移是实时流, 原生进度条和 Live 按键无意义, 隐藏
   updateBar();
@@ -347,6 +384,7 @@ function catchup(c, prog) {
   destroyPlayer();
   current = c;
   mode = 'catchup';
+  cancelNum();
   vodSid = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   vodSpeedSel.value = String(vodSpeed);
   if (vodSpeed !== 1)   // 倍速跨节目保持: 让新会话的服务端节奏立即对上
@@ -577,9 +615,10 @@ tabCh.onclick = showChannels;
 tabEpg.onclick = () => showEpg(current);
 tabSch.onclick = showSearch;
 
-document.getElementById('btnLive').onclick = () => {
+function goLive() {  // 回直播: 时移/点播态重新拉直播流
   if (current && mode !== 'live') { backSlider.value = 0; backLabel.textContent = '-0s'; select(current, 0); }
-};
+}
+document.getElementById('btnLive').onclick = goLive;
 backSlider.oninput = () => { backLabel.textContent = fmtBack(+backSlider.value); };
 backSlider.onchange = () => {
   if (current && current.ts) select(current, +backSlider.value);
@@ -599,13 +638,14 @@ vodSpeedSel.onchange = () => {
   v.playbackRate = vodSpeed;
   if (vodSid) fetch('/api/vod_speed?sid=' + vodSid + '&speed=' + vodSpeed, {method: 'POST'}).catch(() => {});
 };
-document.getElementById('btnFS').onclick = () => {
+function toggleFS() {
   const el = document.getElementById('player');
   if (document.fullscreenElement) document.exitFullscreen();
   // iPhone Safari 不支持元素级全屏, 回退到 video 原生全屏(带系统控制条)
   else if (el.requestFullscreen) el.requestFullscreen().catch(tryIOSFS);
   else tryIOSFS();
-};
+}
+document.getElementById('btnFS').onclick = toggleFS;
 function tryIOSFS() {
   if (v.webkitEnterFullscreen) { try { v.webkitEnterFullscreen(); } catch(e) {} }
 };
@@ -620,6 +660,148 @@ btnList.onclick = () => {
   btnList.textContent = hidden ? '列表' : '收起';
 };
 q.oninput = () => renderView();
+
+// ---------------- 键盘快捷键 ----------------
+const keyMask = document.getElementById('keyMask');
+const osd = document.getElementById('osd');
+let numBuf = '';          // 正在输入的频道号
+let numTimer = null;
+let osdTimer = null;
+
+function osdShow(text) {  // 视频区左上角提示, 2 秒后消失
+  osd.textContent = text;
+  osd.style.display = 'block';
+  clearTimeout(osdTimer);
+  osdTimer = setTimeout(() => { osd.style.display = 'none'; }, 2000);
+}
+
+function cancelNum() {
+  numBuf = '';
+  if (numTimer) { clearTimeout(numTimer); numTimer = null; }
+}
+
+function zapTo(c) {
+  select(c, 0);
+  osdShow(c.no + ' ' + c.name);
+}
+
+function stepChannel(dir) {  // dir: -1 上一个 / 1 下一个, 首尾循环
+  if (!channels.length) return;
+  const n = channels.length;
+  const i = channels.findIndex(c => current && c.pid === current.pid);
+  const j = i < 0 ? (dir === 1 ? -1 : 0) : i;   // 未选台时: ↓ 到第一个, ↑ 到最后一个
+  zapTo(channels[(j + dir + n) % n]);
+}
+
+function numDigit(d) {  // 遥控器式频道号: 有更长号共存时等 0.9s 再跳, 否则立即跳
+  if (numBuf.length >= 4) cancelNum();
+  numBuf += d;
+  const exact = channels.find(c => String(c.no) === numBuf);
+  const longer = channels.some(c => String(c.no).startsWith(numBuf) && String(c.no) !== numBuf);
+  clearTimeout(numTimer);
+  if (!longer) {
+    const typed = numBuf;
+    cancelNum();
+    if (exact) zapTo(exact);
+    else osdShow('无频道号 ' + typed);
+    return;
+  }
+  osdShow('频道号: ' + numBuf + '_');
+  numTimer = setTimeout(() => {
+    const c = channels.find(x => String(x.no) === numBuf);
+    const typed = numBuf;
+    cancelNum();
+    if (c) zapTo(c); else osdShow('无频道号 ' + typed);
+  }, 900);
+}
+
+function volStep(d) {  // 调音量即取消静音(遥控器习惯), 0.1 步进取整防浮点误差
+  v.muted = false;
+  v.volume = Math.min(1, Math.max(0, Math.round((v.volume + d) * 10) / 10));
+  osdShow('音量 ' + Math.round(v.volume * 100) + '%');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (envMask.style.display !== 'none') return;   // 环境自检弹层打开时不响应
+  if (keyMask.style.display !== 'none') {         // 帮助弹层打开时仅响应关闭键
+    if (e.key === 'Escape' || e.key === 'h' || e.key === 'H' || e.key === '?') {
+      keyMask.style.display = 'none';
+      e.preventDefault();
+    }
+    return;
+  }
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' ||
+            t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+    if (e.key === 'Escape') t.blur();   // 搜索框/滑杆/下拉里按 Esc, 焦点还给播放器
+    return;                             // 其余按键交给控件原生行为
+  }
+  // 长按连发只对音量有意义; 换台/步进每次都要重建或定位流, 不响应连发
+  if (e.repeat && e.key !== '+' && e.key !== '-' && e.key !== '=') return;
+  switch (e.key) {
+    case ' ':  // preventDefault: 免得再滚动页面或触发原生控件的同键行为
+      userPlay();
+      if (v.paused) v.play(); else v.pause();
+      e.preventDefault();
+      break;
+    case 'ArrowUp': case 'PageUp':
+      stepChannel(-1);
+      e.preventDefault();
+      break;
+    case 'ArrowDown': case 'PageDown':
+      stepChannel(1);
+      e.preventDefault();
+      break;
+    case 'ArrowLeft':  // 直播→时移回 30s; 时移再退; 点播退 10s
+      if (mode === 'catchup') seekVod(vodBase + (v.currentTime || 0) - 10);
+      else if (current && current.ts) {
+        if (mode === 'live') select(current, 30);
+        else if (curBack < 3600) select(current, Math.min(curBack + 30, 3600));
+        else osdShow('已到时移最早');
+      } else if (current) osdShow('该频道不支持时移');
+      e.preventDefault();
+      break;
+    case 'ArrowRight':  // 时移追回 30s, 减到 0 即回直播; 点播进 10s
+      if (mode === 'catchup') seekVod(vodBase + (v.currentTime || 0) + 10);
+      else if (mode === 'ts') select(current, Math.max(curBack - 30, 0));
+      e.preventDefault();
+      break;
+    case 'l': case 'L': case 'Home':
+      goLive();
+      break;
+    case 'm': case 'M':
+      v.muted = !v.muted;
+      osdShow(v.muted ? '静音' : '取消静音');
+      break;
+    case '+': case '=':
+      volStep(0.1);
+      e.preventDefault();
+      break;
+    case '-': case '_':
+      volStep(-0.1);
+      e.preventDefault();
+      break;
+    case 'f': case 'F':
+      toggleFS();
+      break;
+    case 'h': case 'H': case '?':
+      keyMask.style.display = 'flex';
+      e.preventDefault();
+      break;
+    default:
+      if (/^[0-9]$/.test(e.key)) { numDigit(e.key); e.preventDefault(); }
+      break;
+  }
+});
+
+keyMask.onclick = e => { if (e.target === keyMask) keyMask.style.display = 'none'; };
+
+// 按钮点击后移开焦点: 空格/方向键立即作用于播放器, 不会重复触发刚点过的按钮
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button');
+  if (b) b.blur();
+});
 
 // ---------------- 环境自检 ----------------
 const envMask = document.getElementById('envMask');

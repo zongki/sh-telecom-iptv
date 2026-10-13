@@ -16,6 +16,7 @@ ref/
 1.txt
 2.txt
 dbg*.png
+shots/
 
 # scripts/ 内的调试脚本含内网 IP, 如需开源请先清理
 scripts/
