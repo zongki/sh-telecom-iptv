@@ -149,6 +149,12 @@ def index():
                         headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(os.path.join(STATIC_DIR, "favicon.ico"),
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/static/{name}")
 def static_files(name: str):
     p = os.path.join(STATIC_DIR, name)
