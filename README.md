@@ -6,6 +6,12 @@
 >
 > 本项目的所有代码均由 AI 生成（模型：GLM，智谱 Z.ai）。
 
+> **OpenWrt 用户看这里**：本项目有 OpenWrt 原生移植版
+> **[sh-telecom-iptv-openwrt](https://github.com/zongki/sh-telecom-iptv-openwrt)**
+> ——单个 C 守护进程直接跑在 OpenWrt 上，内置组播中继（**免装 udpxy、
+> 免 Docker**），认证 / EPG / 时移 / 点播 / FCC 快速换台 / 4K 转码与
+> 本版行为对齐，OpenWrt 19.07 ~ 25.12 通吃。
+
 ## 功能
 
 - **网页直播**：全部频道经容器同源代理播放（mpegts.js），含 10 个 4K 频道（HEVC 3840x2160）
